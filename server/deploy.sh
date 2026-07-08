@@ -22,6 +22,7 @@ mkdir -p "$RUNTIME/data"
 "$RUNTIME/venv/bin/pip" install -q --upgrade pip
 "$RUNTIME/venv/bin/pip" install -q -r "$SRC/requirements.txt"
 cp "$SRC/app.py" "$RUNTIME/app.py"
+cp "$SRC/moderation.py" "$RUNTIME/moderation.py"
 cp "$SRC/ingest_gargul.py" "$RUNTIME/ingest_gargul.py"
 cp "$SRC/fetch_roster.py" "$RUNTIME/fetch_roster.py"
 cp "$SRC/fetch_wcl_attendance.py" "$RUNTIME/fetch_wcl_attendance.py"

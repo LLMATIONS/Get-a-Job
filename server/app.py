@@ -51,6 +51,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from moderation import contains_blocked
+
 # Ed25519 verification for Discord interaction webhooks. Guarded so a missing
 # dependency degrades to "interactions endpoint disabled" rather than a boot
 # failure for the rest of the service.
@@ -1484,10 +1486,14 @@ def submit_idea(body: SubmitBody, request: Request):
         return _err(422, f"WoW caps guild names at {NAME_MAX} characters.")
     if not _letters_and_spaces(name):
         return _err(422, "Guild names can only use letters and spaces.")
+    if contains_blocked(name, strict=True):
+        return _err(422, "That name won't fly here.")
 
     why = _clean(body.why or "")
     if len(why) > WHY_MAX:
         return _err(422, f"Keep the reason under {WHY_MAX} characters.")
+    if contains_blocked(why):
+        return _err(422, "That language won't fly here.")
     why = why or None
 
     ip = _client_ip(request)
@@ -1643,6 +1649,16 @@ def submit_application(body: ApplyBody, request: Request):
         return _err(422, "Please confirm the consumables and gear requirement.")
     if not body.ack_friend:
         return _err(422, "Please confirm you'll reach out on Discord.")
+
+    # Content screen (see moderation.py): slurs blocked in every field,
+    # profanity additionally blocked in the identity fields + URL, where it
+    # has no legitimate use. A rejected application never stores a row and
+    # never reaches Discord or email.
+    strict_fields = (character, discord, wow_class, logs or "")
+    if any(contains_blocked(v, strict=True) for v in strict_fields) or any(
+        contains_blocked(v) for v in (experience, why)
+    ):
+        return _err(422, "That language won't fly here. Clean it up and try again.")
 
     ip = _client_ip(request)
     if not _turnstile_ok(body.token, ip):
