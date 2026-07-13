@@ -181,6 +181,83 @@
     }
   }
 
+  // --- gear-over-time chart ---------------------------------------------
+  // Same-origin inline SVG, no charting library. Stacked bars (MS bottom,
+  // OS on top) per raid week, oldest -> newest left to right.
+  var SVG_NS = "http://www.w3.org/2000/svg";
+  function svgEl(tag, attrs) {
+    var e = document.createElementNS(SVG_NS, tag);
+    for (var k in attrs) { if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]); }
+    return e;
+  }
+  function weekLabel(iso) {
+    // iso is "YYYY-MM-DD" (UTC reset-week start date) -> "Jun 24"
+    var parts = (iso || "").split("-");
+    if (parts.length !== 3) return iso || "";
+    var d = new Date(Date.UTC(+parts[0], +parts[1] - 1, +parts[2]));
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  }
+
+  function renderHistory(h) {
+    var panel = $("#history-panel"), svg = $("#history-chart");
+    svg.textContent = "";
+    var weeks = (h && h.weeks) || [];
+    if (!weeks.length) { panel.hidden = true; return; }
+
+    var W = 640, H = 220;
+    var padL = 28, padR = 10, padT = 10, padB = 28;
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+    var maxTotal = weeks.reduce(function (m, w) { return Math.max(m, w.total); }, 0) || 1;
+    var n = weeks.length;
+    var slot = plotW / n;
+    var barW = Math.max(4, Math.min(28, slot * 0.6));
+
+    // gridlines + y-axis ticks (0, mid, max) for a scale reference
+    [0, 0.5, 1].forEach(function (frac) {
+      var y = padT + plotH * (1 - frac);
+      svg.appendChild(svgEl("line", {
+        x1: padL, x2: W - padR, y1: y, y2: y, class: "gridline"
+      }));
+      var label = svgEl("text", { x: 2, y: y + 3, class: "axis-label" });
+      label.textContent = Math.round(maxTotal * frac);
+      svg.appendChild(label);
+    });
+
+    weeks.forEach(function (w, i) {
+      var x = padL + i * slot + (slot - barW) / 2;
+      var msH = (w.ms / maxTotal) * plotH;
+      var osH = (w.os / maxTotal) * plotH;
+      var msY = padT + plotH - msH;
+      var osY = msY - osH;
+      if (w.ms > 0) {
+        var msRect = svgEl("rect", { x: x, y: msY, width: barW, height: Math.max(msH, 0), class: "bar-ms" });
+        var msTitle = svgEl("title", {});
+        msTitle.textContent = weekLabel(w.week) + ": " + w.ms + " main-spec";
+        msRect.appendChild(msTitle);
+        svg.appendChild(msRect);
+      }
+      if (w.os > 0) {
+        var osRect = svgEl("rect", { x: x, y: osY, width: barW, height: Math.max(osH, 0), class: "bar-os" });
+        var osTitle = svgEl("title", {});
+        osTitle.textContent = weekLabel(w.week) + ": " + w.os + " off-spec";
+        osRect.appendChild(osTitle);
+        svg.appendChild(osRect);
+      }
+      // sparse x labels so long histories don't collide: first, last, and every
+      // Nth week in between
+      var stride = Math.max(1, Math.ceil(n / 8));
+      if (i === 0 || i === n - 1 || i % stride === 0) {
+        var xl = svgEl("text", {
+          x: x + barW / 2, y: H - 8, class: "axis-label", "text-anchor": "middle"
+        });
+        xl.textContent = weekLabel(w.week);
+        svg.appendChild(xl);
+      }
+    });
+
+    panel.hidden = false;
+  }
+
   function renderUpdated(d) {
     var p = $("#updated");
     var bits = [];
@@ -211,6 +288,14 @@
       renderRecent(d);
       renderUpdated(d);
       status.hidden = true;
+      // Best-effort: a history-endpoint hiccup shouldn't take down the rest of
+      // the page, which has already rendered successfully above.
+      try {
+        var h = await api("/api/loot/history");
+        renderHistory(h);
+      } catch (e) {
+        $("#history-panel").hidden = true;
+      }
     } catch (e) {
       status.className = "status err";
       status.textContent = e.message || "Couldn't load the loot log. Try again in a bit.";

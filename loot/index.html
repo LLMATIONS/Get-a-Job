@@ -110,6 +110,19 @@ table.standings tbody tr:last-child td{border-bottom:none}
   border-radius:999px;padding:.05rem .45rem;letter-spacing:.02em}
 .dim{color:var(--dim)}
 
+/* gear-over-time chart */
+.history-chart-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+svg.history-chart{width:100%;height:auto;min-width:420px;display:block}
+.history-chart .bar-ms{fill:var(--sky)}
+.history-chart .bar-os{fill:rgba(120,170,255,.28)}
+.history-chart .axis-label{fill:var(--dim);font-size:9px;font-family:inherit}
+.history-chart .gridline{stroke:var(--card-border);stroke-width:1}
+.history-legend{display:flex;gap:1.1rem;justify-content:center;margin-top:.7rem;font-size:.78rem;color:var(--dim)}
+.lg-item{display:inline-flex;align-items:center;gap:.35rem}
+.lg-swatch{width:.7rem;height:.7rem;border-radius:3px;display:inline-block}
+.lg-ms{background:var(--sky)}
+.lg-os{background:rgba(120,170,255,.28)}
+
 /* recent feed */
 ul.recent{list-style:none;margin:0;padding:0}
 ul.recent li{display:flex;align-items:baseline;gap:.5rem;padding:.42rem 0;border-bottom:1px solid rgba(120,170,255,.07);font-size:.92rem;flex-wrap:wrap}
@@ -160,6 +173,19 @@ footer a:hover,footer a:focus-visible{color:var(--sky)}
     <div class="hurting" id="hurting"></div>
   </section>
 
+  <section class="panel" id="history-panel" hidden>
+    <h2>Gear over time</h2>
+    <p class="note">Main-spec vs off-spec awards per raid week, oldest to newest. A quiet stretch is a good prompt to check who's still hurting above.</p>
+    <div class="history-chart-wrap">
+      <svg id="history-chart" class="history-chart" viewBox="0 0 640 220" role="img" aria-labelledby="history-chart-title"></svg>
+      <p id="history-chart-title" class="visually-hidden">Bar chart of main-spec and off-spec loot awards per raid week</p>
+    </div>
+    <div class="history-legend">
+      <span class="lg-item"><span class="lg-swatch lg-ms"></span>Main-spec</span>
+      <span class="lg-item"><span class="lg-swatch lg-os"></span>Off-spec</span>
+    </div>
+  </section>
+
   <section class="panel" id="standings-panel" hidden>
     <h2>Standings</h2>
     <p class="note">Every awarded drop, main-spec vs off-spec. Tap a column to sort. A highlighted <span class="badge-lock">Lockout</span> count = 2+ main-spec pieces since Tuesday's reset &mdash; the week's high rollers, surfaced for visibility, not a hard rule.</p>
@@ -201,6 +227,6 @@ footer a:hover,footer a:focus-visible{color:var(--sky)}
 
 <script>const whTooltips = {colorLinks:true, iconizeLinks:true, renameLinks:false};</script>
 <script async src="https://wow.zamimg.com/js/tooltips.js"></script>
-<script src="/loot/app.js?v=2026-06-29b" defer></script>
+<script src="/loot/app.js?v=2026-07-12" defer></script>
 </body>
 </html>
