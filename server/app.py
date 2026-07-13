@@ -1068,6 +1068,7 @@ LOOT_RESET_HOUR_UTC = int(os.environ.get("LOOT_RESET_HOUR_UTC", "15"))
 LOOT_LOCK_THRESHOLD = 2     # >= this many MS pieces this lockout => loot-locked
 LOOT_RECENT_LIMIT = 25      # awards in the recent-drops feed
 LOOT_HURTING_LIMIT = 8      # players surfaced in the "needs gear" panel
+LOOT_HISTORY_WEEKS_LIMIT = 26  # weeks shown on the gear-over-time chart
 
 # Honorary members: regulars who raid with us but aren't on the Blizzard guild
 # roster (so fetch_roster.py never sees them). We treat them as guildies in the
@@ -1118,6 +1119,24 @@ def _lockout_start() -> datetime:
     if start > now:
         start -= timedelta(days=7)
     return start
+
+
+def _reset_week(iso_utc: str) -> str:
+    """ISO date (UTC) of the weekly raid-reset boundary at/just before `iso_utc`.
+    Same bucketing rule as fetch_wcl_attendance.reset_week() (Tue ~15:00 UTC by
+    default, both env-overridable via LOOT_RESET_WEEKDAY/LOOT_RESET_HOUR_UTC) so
+    a loot award and a WCL attendance row for the same lockout land in the same
+    week label."""
+    dt = datetime.fromisoformat(iso_utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(timezone.utc)
+    anchor = dt.replace(hour=LOOT_RESET_HOUR_UTC, minute=0, second=0, microsecond=0)
+    delta_days = (anchor.weekday() - LOOT_RESET_WEEKDAY) % 7
+    start = anchor - timedelta(days=delta_days)
+    if start > dt:
+        start -= timedelta(days=7)
+    return start.date().isoformat()
 
 
 # --- trial tracker ----------------------------------------------------------
@@ -1293,6 +1312,42 @@ def _maybe_notify_trials() -> None:
         pass
 
 
+def _loot_history() -> dict:
+    """Weekly MS/OS award counts, bucketed by raid-reset week, for the
+    'gear over time' trend chart on the loot page. Read-only, no roster
+    filtering (PUG drops are part of the historical trend same as the recent
+    feed) — the standings/needs-gear panels are the guild-only views, this is
+    a raw activity trend. Capped to the most recent LOOT_HISTORY_WEEKS_LIMIT
+    weeks that actually have awards, oldest first, so the chart doesn't grow
+    unbounded as the log ages."""
+    rows = _db.execute(
+        "SELECT awarded_at, off_spec FROM loot_awards ORDER BY awarded_at ASC"
+    ).fetchall()
+    buckets: dict = {}
+    for r in rows:
+        try:
+            wk = _reset_week(r["awarded_at"])
+        except Exception:
+            continue
+        b = buckets.setdefault(wk, {"ms": 0, "os": 0})
+        if r["off_spec"]:
+            b["os"] += 1
+        else:
+            b["ms"] += 1
+    weeks = sorted(buckets)[-LOOT_HISTORY_WEEKS_LIMIT:]
+    return {
+        "weeks": [
+            {
+                "week": w,
+                "ms": buckets[w]["ms"],
+                "os": buckets[w]["os"],
+                "total": buckets[w]["ms"] + buckets[w]["os"],
+            }
+            for w in weeks
+        ]
+    }
+
+
 def _loot_payload() -> dict:
     """Aggregate loot_awards into standings / hurting / recent. Read-only."""
     # Keep the trials table current with the roster before reading it out.
@@ -1465,6 +1520,16 @@ def get_loot():
     # call never blocks the endpoint.
     _maybe_notify_trials()
     return payload
+
+
+@app.get("/api/loot/history")
+def get_loot_history():
+    """Public, read-only weekly MS/OS award counts for the loot page's
+    gear-over-time trend chart. Same trust model as /api/loot: no auth,
+    character names only, no PII.
+    """
+    with _lock:
+        return _loot_history()
 
 
 @app.get("/api/ideas")
