@@ -51,6 +51,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from http_retry import urlopen_retry
 from moderation import contains_blocked
 
 # Ed25519 verification for Discord interaction webhooks. Guarded so a missing
@@ -700,22 +701,30 @@ _app_channel_id: Optional[str] = None
 def _applications_channel_id() -> str:
     """The channel the bot posts into. Explicit env wins; otherwise it's read
     once off the webhook (GET on the webhook URL returns its channel_id — the
-    webhook token authorizes that, no bot needed) and cached."""
+    webhook token authorizes that, no bot needed) and cached.
+
+    Only a SUCCESSFUL read is cached. This used to cache the empty string on any
+    failure, and since the cache was keyed on `is not None` it stuck for the rest
+    of the process lifetime. With a bot token set, neither caller falls back to
+    the webhook (`_post_discord` short-circuits into the bot path, and
+    `_post_trial_due` returns early), so one transient blip on this GET silently
+    killed BOTH application posts and trial pings until the next restart. Leaving
+    the cache unset on failure means the next call simply tries again.
+    """
     global _app_channel_id
     if DISCORD_APPLICATIONS_CHANNEL_ID:
         return DISCORD_APPLICATIONS_CHANNEL_ID
-    if _app_channel_id is not None:
+    if _app_channel_id:  # truthy, so an empty result is never a sticky cache
         return _app_channel_id
-    _app_channel_id = ""
-    if DISCORD_WEBHOOK_URL:
-        req = urllib.request.Request(
-            DISCORD_WEBHOOK_URL, headers={"User-Agent": APPLY_UA}, method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                body = json.loads(resp.read() or b"{}")
-                _app_channel_id = str(body.get("channel_id") or "")
-        except Exception:
-            pass
+    if not DISCORD_WEBHOOK_URL:
+        return ""
+    req = urllib.request.Request(
+        DISCORD_WEBHOOK_URL, headers={"User-Agent": APPLY_UA}, method="GET")
+    try:
+        body = json.loads(urlopen_retry(req, timeout=8, label="discord channel") or b"{}")
+    except Exception:
+        return ""  # deliberately not cached: the next call retries
+    _app_channel_id = str(body.get("channel_id") or "")
     return _app_channel_id
 
 
