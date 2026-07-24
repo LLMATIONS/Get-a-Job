@@ -45,6 +45,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from http_retry import urlopen_retry
+
 # --- configuration ----------------------------------------------------------
 # All host-specific; the repo carries no credentials or realm names. On the
 # serving host these come from hype-vote.env (mode 600).
@@ -84,13 +86,14 @@ class RosterError(RuntimeError):
 def _get(url: str, headers: dict) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **headers})
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
-            return resp.read()
+        return urlopen_retry(req, timeout=HTTP_TIMEOUT, label="roster api")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", "replace")[:300]
         raise RosterError(f"HTTP {exc.code} for {url.split('?')[0]}: {body}") from exc
-    except urllib.error.URLError as exc:
-        raise RosterError(f"network error for {url.split('?')[0]}: {exc.reason}") from exc
+    except OSError as exc:
+        # URLError (an OSError subclass) plus the bare TimeoutError that urllib
+        # lets through from the response-read leg. See http_retry's docstring.
+        raise RosterError(f"network error for {url.split('?')[0]}: {getattr(exc, 'reason', exc)}") from exc
 
 
 def _token() -> str:
@@ -104,13 +107,12 @@ def _token() -> str:
         headers={"User-Agent": USER_AGENT, "Authorization": f"Basic {basic}"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
-            tok = json.loads(resp.read()).get("access_token")
+        tok = json.loads(urlopen_retry(req, timeout=HTTP_TIMEOUT, label="roster token")).get("access_token")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", "replace")[:200]
         raise RosterError(f"token HTTP {exc.code}: {body}") from exc
-    except urllib.error.URLError as exc:
-        raise RosterError(f"token network error: {exc.reason}") from exc
+    except OSError as exc:
+        raise RosterError(f"token network error: {getattr(exc, 'reason', exc)}") from exc
     if not tok:
         raise RosterError("token response had no access_token")
     return tok
